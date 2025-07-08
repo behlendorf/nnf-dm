@@ -1,0 +1,230 @@
+.TH LIBDATAMOVEMENT 3 "2025-07-07" "HPE" "Data Movement Offload Client Library"
+.SH NAME
+libdatamovement \- C library for offloaded data copy operations via a network service
+.SH SYNOPSIS
+.B #include <copy-offload.h>
+.br
+.B #include <copy-offload-status.h>
+.SH DESCRIPTION
+The
+.B libdatamovement
+library provides an API for submitting, monitoring, and managing data copy operations offloaded to a remote server. It is designed to interact with a copy-offload service, supporting secure (TLS) communication, authentication via workflow tokens, and integration with containerized environments.
+
+The library uses libcurl for HTTP(S) communication and supports both synchronous and asynchronous workflows for data movement. Status and progress of copy jobs can be queried and interpreted using the provided status response API.
+.SH DATA TYPES
+.TP
+.B COPY_OFFLOAD
+A handle to a copy-offload client session. All operations require a pointer to an initialized
+.BR COPY_OFFLOAD
+structure.
+.TP
+.B copy_offload_status_response_t
+A structure representing the parsed status of a data movement request, as returned by
+.BR copy_offload_status (3).
+It contains state, status, messages, timing, and command progress information.
+.TP
+.B _copy_offload_command_status_s
+Describes the current state of the data movement command, including progress, elapsed time, last message, and the command invoked.
+.SH ENVIRONMENT VARIABLES
+.TP
+.B DW_WORKFLOW_TOKEN
+The workflow token for authentication.
+.TP
+.B NNF_CONTAINER_LAUNCHER
+Name of the container running the MPI launcher (used for server address resolution).
+.TP
+.B NNF_CONTAINER_PORTS
+Ports the container is listening on; the library uses the first port.
+.SH FILES
+.TP
+.B /etc/local-rabbit.conf
+Fallback file for determining the associated server host if
+.B NNF_CONTAINER_LAUNCHER
+is unset.
+.TP
+.B /etc/nnf-dm-usercontainer/cert.pem
+Default certificate file for TLS connections.
+.SH API VERSION
+Library and server communicate using the API version "1.0".
+.SH FUNCTIONS
+.SS Initialization and Cleanup
+.TP
+.BI "COPY_OFFLOAD *copy_offload_init(void);"
+Create and initialize a handle for a new session.
+.TP
+.BI "void copy_offload_cleanup(COPY_OFFLOAD *offload);"
+Release all resources associated with the handle.
+.SS Configuration
+.TP
+.BI "int copy_offload_configure(COPY_OFFLOAD *offload);"
+Configure the handle for server communication with TLS enabled.
+Returns 0 on success, 1 on failure (error in
+.IR offload->err_message ).
+.TP
+.BI "int copy_offload_configure_without_tls(COPY_OFFLOAD *offload);"
+Configure the handle for server communication without TLS.
+Returns 0 on success, 1 on failure.
+.TP
+.BI "int copy_offload_override_cert(COPY_OFFLOAD *offload, char *cert_path);"
+Override the default TLS certificate path.
+Returns 0 on success, 1 on failure.
+.TP
+.BI "int copy_offload_override_token(COPY_OFFLOAD *offload, char *token_path);"
+Override the default workflow token. Set
+.I token_path
+to NULL to disable token use.
+Returns 0 on success, 1 on failure.
+.TP
+.BI "int copy_offload_override_hostname(COPY_OFFLOAD *offload, char *hostname);"
+Override the default hostname (default is the system hostname).
+.SS Data Movement Operations
+.TP
+.BI "int copy_offload_copy(COPY_OFFLOAD *offload, const char *profile_name, int slots, int max_slots, int dry_run, char *source_path, char *dest_path, char **output);"
+Submit a new copy-offload request.
+.RS
+.TP
+.I profile_name
+Copy profile to use.
+.TP
+.I slots, max_slots
+Resource allocation.
+.TP
+.I dry_run
+If nonzero, simulate only.
+.TP
+.I source_path, dest_path
+Source and destination paths.
+.TP
+.I output
+On success, set to newly created job name (caller must free).
+.RE
+Returns 0 on success, 1 on failure.
+.TP
+.BI "int copy_offload_list(COPY_OFFLOAD *offload, char **output);"
+List active copy-offload jobs.
+.I output
+is a comma-separated list of job names (caller must free).
+Returns 0 on success, 1 on failure.
+.TP
+.BI "int copy_offload_status(COPY_OFFLOAD *offload, char *job_name, int max_wait_secs, copy_offload_status_response_t **status_response);"
+Query the status of a copy-offload job.
+.RS
+.TP
+.I job_name
+Job identifier.
+.TP
+.I max_wait_secs
+Wait time (0 = immediate, -1 = indefinite).
+.TP
+.I status_response
+Response object (caller must call
+.BR copy_offload_status_cleanup ).
+.RE
+Returns 0 on success, 1 on failure.
+.TP
+.BI "void copy_offload_status_cleanup(copy_offload_status_response_t *status_response);"
+Free resources associated with a status response. After this call, the
+.I status_response
+pointer and its fields must not be accessed.
+.TP
+.BI "void copy_offload_status_pretty_print(FILE *out, copy_offload_status_response_t *status_response);"
+Pretty-print the status response to the given file stream. Output includes state, status, message, command, progress, elapsed time, last message, last message time, start time, and end time.
+.TP
+.BI "int copy_offload_cancel(COPY_OFFLOAD *offload, char *job_name, char **output);"
+Cancel a specific copy-offload job.
+.I output
+is the server response, if any (caller must free).
+Returns 0 on success, 1 on failure.
+.TP
+.BI "int copy_offload_shutdown(COPY_OFFLOAD *offload);"
+Shutdown the server and exit cleanly.
+.SS Development and Debugging
+.TP
+.BI "void copy_offload_verbose(COPY_OFFLOAD *offload);"
+Enable verbose output from libcurl for debugging.
+.TP
+.BI "int copy_offload_hello(COPY_OFFLOAD *offload, char **output);"
+Send a hello message to the server.
+.I output
+is the server response (caller must free).
+Returns 0 on success, 1 on failure.
+.SS Status Response Parsing
+.TP
+.BI "copy_offload_status_response_t *_copy_offload_status_parse(char *json_text);"
+Parse a JSON status response into a
+.B copy_offload_status_response_t
+structure. Used internally by the library.
+.SH STATUS RESPONSE STRUCTURE
+The
+.B copy_offload_status_response_t
+structure describes the current state and progress of a data movement request. Its fields include:
+.TP
+.B state
+Current state of the request (e.g., "Running", "Completed", "Failed").
+.TP
+.B status
+Current status string from the server.
+.TP
+.B message
+Any extra information supplied with the state/status.
+.TP
+.B command_status
+A
+.B _copy_offload_command_status_s
+structure describing the running command:
+.RS
+.TP
+.B command
+Command used to perform data movement.
+.TP
+.B progress
+Progress percentage (0-100) based on the output of
+.BR dcp .
+.TP
+.B elapsed_time
+Duration the operation has been running (e.g., "1m30s").
+.TP
+.B last_message
+Most recent output line from the data movement command.
+.TP
+.B last_message_time
+Time of the last message.
+.RE
+.TP
+.B start_time
+Start time (local) of the operation.
+.TP
+.B end_time
+End time (local) of the operation.
+.SH ERROR HANDLING
+Most functions return 0 on success and 1 on failure.
+On failure, a human-readable error message is placed in
+.IR offload->err_message .
+.SH EXAMPLES
+.nf
+COPY_OFFLOAD *off = copy_offload_init();
+if (copy_offload_configure(off) != 0) {
+    fprintf(stderr, "Error: %s\\n", off->err_message);
+    exit(1);
+}
+char *job_name = NULL;
+if (copy_offload_copy(off, "default", 1, 1, 0, "/src", "/dst", &job_name) == 0) {
+    printf("Submitted job: %s\\n", job_name);
+    free(job_name);
+}
+copy_offload_status_response_t *status = NULL;
+if (copy_offload_status(off, job_name, 0, &status) == 0) {
+    copy_offload_status_pretty_print(stdout, status);
+    copy_offload_status_cleanup(status);
+}
+copy_offload_cleanup(off);
+.fi
+.SH SEE ALSO
+libcurl(3),
+json-c(3),
+copy-offload-status.h
+.SH AUTHOR
+Hewlett Packard Enterprise Development LP
+.SH COPYRIGHT
+Copyright 2024-2025 Hewlett Packard Enterprise Development LP
+Licensed under the Apache License, Version 2.0
